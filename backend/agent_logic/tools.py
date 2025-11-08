@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 import os
 import logging
+import google.generativeai as genai
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -43,6 +44,10 @@ def enter_customer_info(
     name: Optional[str] = None,
     email: Optional[str] = None,
     phone: Optional[str] = None,
+    rewardPoints: Optional[int] = None,
+    prevOrders: Optional[list[dict]] = None,
+    birthday: Optional[str] = None,
+    interests: Optional[list[str]] = None,
     address: Optional[str] = None,
     company: Optional[str] = None,
     category: Optional[str] = None,
@@ -54,15 +59,6 @@ def enter_customer_info(
     All fields are optional - extract whatever information is available.
     Missing fields will be stored as None/null to indicate they were not provided.
     
-    Args:
-        name: Customer's full name
-        email: Customer's email address
-        phone: Customer's phone number
-        address: Customer's physical address
-        company: Customer's company name
-        category: Customer category/classification (can be None if not provided)
-        notes: Additional notes or comments about the customer
-    
     Returns:
         dict: Status and confirmation message with entered data
     """
@@ -71,6 +67,10 @@ def enter_customer_info(
         "name": name,
         "email": email,
         "phone": phone,
+        "rewardPoints": rewardPoints,
+        "prevOrders": prevOrders,
+        "birthday": birthday,
+        "interests": interests,
         "address": address,
         "company": company,
         "category": category,  # Can be None if not provided
@@ -83,7 +83,7 @@ def enter_customer_info(
     if not has_data:
         return {
             "status": "error",
-            "error_message": "No customer information provided. Please extract at least one field (name, email, phone, address, company, category, or notes)."
+            "error_message": "No customer data was received. Please provide at least one piece of information (such as name, email, phone, address, company, category, or notes) to enter a customer record."
         }
     
     # Create a summary of what was entered vs what's missing
@@ -109,15 +109,17 @@ def enter_customer_info(
 
 
 def enter_financial_data(
-    amount: Optional[float] = None,
-    currency: Optional[str] = None,
-    transaction_type: Optional[str] = None,
-    date: Optional[str] = None,
-    description: Optional[str] = None,
     category: Optional[str] = None,
-    inventory_item: Optional[str] = None,
-    account_number: Optional[str] = None,
-    notes: Optional[str] = None,
+    # Transaction Records fields
+    transactions: Optional[list[dict]] = None,  # cashflow in/out records
+    # Expenses fields
+    expenses: Optional[list[dict]] = None,  # taxes, bills, utilities, etc.
+    # Banking fields
+    bankStatements: Optional[list[dict]] = None,  # bank statements, credit card statements, etc.
+    # Finance Reports fields
+    financeReports: Optional[list[dict]] = None,  # profit and loss statements, balance sheets, etc.
+    # Tax Documents fields
+    taxDocuments: Optional[list[dict]] = None,  # tax returns, tax forms, etc.
 ) -> Dict[str, Any]:
     """Enters financial data into the system.
     
@@ -125,40 +127,74 @@ def enter_financial_data(
     All fields are optional - extract whatever information is available.
     Missing fields will be stored as None/null to indicate they were not provided.
     
-    Args:
-        amount: Transaction or financial amount
-        currency: Currency code (e.g., USD, EUR, GBP)
-        transaction_type: Type of transaction (e.g., income, expense, transfer, payment)
-        date: Date of the transaction (format: YYYY-MM-DD or any readable format)
-        description: Description of the financial transaction
-        category: Category of the transaction (e.g., utilities, salary, rent, supplies)
-        inventory_item: Associated inventory item or product
-        account_number: Associated account number or reference
-        notes: Additional notes or comments
+    Categories (frontend maps to these backend fields):
+    1. "Transaction Records" → transactions field (cashflow in/out)
+    2. "Expenses" → expenses field (taxes, bills, utilities, etc.)
+    3. "Banking" → bankStatements field (bank statements, credit card statements, etc.)
+    4. "Finance Reports" → financeReports field (profit and loss statements, balance sheets, etc.)
+    5. "Tax Documents" → taxDocuments field (tax returns, tax forms, etc.)
+    
+    IMPORTANT - Structure for list items:
+    Each item in the category lists should be a dictionary with:
+    - "type" field: subcategory for frontend differentiation (e.g., "taxes", "bills", "utilities" for expenses)
+    - Common fields inside each dict: amount, currency, date, description, notes
+    - Category-specific fields as needed
+    
+    Example structure:
+    {
+      "category": "Expenses",
+      "expenses": [
+        {
+          "type": "taxes",  # Frontend can filter/group by this
+          "amount": 1000,
+          "currency": "USD",
+          "date": "2024-01-15",
+          "description": "Q4 income tax",
+          "notes": "Filed electronically"
+        },
+        {
+          "type": "bills",
+          "amount": 200,
+          "currency": "USD",
+          "date": "2024-01-20",
+          "description": "Electric bill"
+        }
+      ]
+    }
+    
+    For Finance Reports, use types like: "profit_and_loss", "balance_sheet", "cash_flow_statement"
+    For Banking, use types like: "bank_statement", "credit_card_statement"
+    For Tax Documents, use types like: "tax_return", "tax_form"
+    For Transactions, use types like: "income", "expense", "transfer", "payment"
     
     Returns:
         dict: Status and confirmation message with entered data
     """
     # Store all fields explicitly, including None for missing data
     financial_data = {
-        "amount": amount,
-        "currency": currency,
-        "transaction_type": transaction_type,
-        "date": date,
-        "description": description,
         "category": category,
-        "inventory_item": inventory_item,
-        "account_number": account_number,
-        "notes": notes,
+        "transactions": transactions,
+        "expenses": expenses,
+        "bankStatements": bankStatements,
+        "financeReports": financeReports,
+        "taxDocuments": taxDocuments,
     }
     
-    # Check if at least one field has a value
-    has_data = any(value is not None and value != "" for value in financial_data.values())
+    # Check if at least one category list has data
+    category_lists = [transactions, expenses, bankStatements, financeReports, taxDocuments]
+    has_data = any(
+        value is not None and value != "" and (isinstance(value, list) and len(value) > 0)
+        for value in category_lists
+    )
     
     if not has_data:
         return {
             "status": "error",
-            "error_message": "No financial data provided. Please extract at least one field (amount, currency, transaction_type, date, description, category, inventory_item, account_number, or notes)."
+            "error_message": (
+                "No financial data was provided. Please enter at least one category with data: "
+                "transactions, expenses, bankStatements, financeReports, or taxDocuments. "
+                "Each item in the lists should include a 'type' field and common fields (amount, currency, date, description, notes)."
+            )
         }
     
     # Create a summary of what was entered vs what's missing
@@ -183,48 +219,279 @@ def enter_financial_data(
     }
 
 
-def extract_data_from_file(
+def _extract_with_gemini(
     file_content: str,
     file_type: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Extracts structured data from uploaded file content.
+    """Uses Gemini to extract structured data from file content.
     
-    This tool analyzes file content and extracts relevant information.
-    It can be used by both Customer Info and Finances agents.
+    This leverages Gemini's advanced understanding to extract structured data
+    in the exact format needed by the agents.
     
     Args:
         file_content: The text content of the uploaded file
-        file_type: Type of file (e.g., 'pdf', 'txt', 'csv', 'json')
+        file_type: Type of file (e.g., 'pdf', 'txt', 'csv', 'json', 'image')
     
     Returns:
-        dict: Extracted data and suggestions for which agent should process it
+        dict: Structured extracted data with confidence scores
     """
-    # Simple analysis to suggest agent type
+    try:
+        # Initialize Gemini model for extraction
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
+        
+        # Create extraction prompt with structured output format
+        extraction_prompt = f"""Analyze the following file content and extract all relevant structured data.
+
+File Type: {file_type or 'unknown'}
+
+File Content:
+{file_content[:50000]}  # Limit to 50k chars to avoid token limits
+
+Extract and return a JSON object with the following structure. Be thorough and accurate:
+
+{{
+  "data_type": "customer_info" | "financial_data" | "mixed" | "unknown",
+  "confidence": 0.0-1.0,
+  "customer_info": {{
+    "name": string or null,
+    "email": string or null,
+    "phone": string or null,
+    "address": string or null,
+    "rewardPoints": integer or null,
+    "prevOrders": [{{"order_id": string, "date": string, "amount": number}}] or null,
+    "birthday": string (YYYY-MM-DD) or null,
+    "interests": [string] or null,
+    "company": string or null,
+    "category": string or null,
+    "notes": string or null
+  }},
+  "financial_data": {{
+    "category": "Transaction Records" | "Expenses" | "Banking" | "Finance Reports" | "Tax Documents" | null,
+    "transactions": [
+      {{
+        "type": "income" | "expense" | "transfer" | "payment",
+        "amount": number,
+        "currency": string (e.g., "USD"),
+        "date": string (YYYY-MM-DD),
+        "description": string,
+        "notes": string or null
+      }}
+    ] or null,
+    "expenses": [
+      {{
+        "type": "taxes" | "bills" | "utilities" | "rent" | "supplies" | etc,
+        "amount": number,
+        "currency": string,
+        "date": string (YYYY-MM-DD),
+        "description": string,
+        "notes": string or null
+      }}
+    ] or null,
+    "bankStatements": [
+      {{
+        "type": "bank_statement" | "credit_card_statement",
+        "amount": number,
+        "currency": string,
+        "date": string (YYYY-MM-DD),
+        "description": string,
+        "notes": string or null
+      }}
+    ] or null,
+    "financeReports": [
+      {{
+        "type": "profit_and_loss" | "balance_sheet" | "cash_flow_statement",
+        "amount": number or null,
+        "currency": string or null,
+        "date": string (YYYY-MM-DD) or null,
+        "description": string,
+        "notes": string or null
+      }}
+    ] or null,
+    "taxDocuments": [
+      {{
+        "type": "tax_return" | "tax_form",
+        "amount": number or null,
+        "currency": string or null,
+        "date": string (YYYY-MM-DD) or null,
+        "description": string,
+        "notes": string or null
+      }}
+    ] or null
+  }},
+  "extraction_notes": "string describing what was found and any ambiguities",
+  "missing_fields": ["list of fields that were expected but not found"]
+}}
+
+CRITICAL INSTRUCTIONS:
+1. Extract ALL available data - be thorough
+2. Use null for missing fields, not empty strings or empty arrays
+3. For dates, normalize to YYYY-MM-DD format
+4. For amounts, extract numeric values only (remove currency symbols)
+5. For financial data, determine the correct category and type
+6. Group related items into appropriate lists
+7. Set confidence based on how clear and complete the data is
+8. If data is ambiguous or unclear, note it in extraction_notes
+9. Return ONLY valid JSON, no markdown formatting
+
+Return the JSON object now:"""
+
+        # Use Gemini API for extraction
+        # Note: This uses the direct Gemini API, not ADK
+        # If you want to use ADK agents, you could create a dedicated extraction agent
+        api_key = os.getenv("GEMINI_API_KEY")
+        
+        if api_key:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(model_name)
+            
+            # Generate extraction
+            response = model.generate_content(
+                extraction_prompt,
+                generation_config={
+                    "temperature": 0.1,  # Low temperature for accuracy
+                    "top_p": 0.95,
+                    "top_k": 40,
+                }
+            )
+            
+            # Parse JSON from response
+            response_text = response.text.strip()
+            
+            # Remove markdown code blocks if present
+            if response_text.startswith("```json"):
+                response_text = response_text[7:]
+            if response_text.startswith("```"):
+                response_text = response_text[3:]
+            if response_text.endswith("```"):
+                response_text = response_text[:-3]
+            response_text = response_text.strip()
+            
+            try:
+                extracted_data = json.loads(response_text)
+                logger.info(f"Successfully extracted data with Gemini (confidence: {extracted_data.get('confidence', 0)})")
+                return extracted_data
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse Gemini JSON response: {e}")
+                logger.debug(f"Response text: {response_text[:500]}")
+                # Fall back to basic extraction
+                return _basic_extraction(file_content, file_type)
+        else:
+            logger.warning("GEMINI_API_KEY not set, falling back to basic extraction")
+            return _basic_extraction(file_content, file_type)
+            
+    except Exception as e:
+        logger.error(f"Error in Gemini extraction: {e}")
+        # Fall back to basic extraction
+        return _basic_extraction(file_content, file_type)
+
+
+def _basic_extraction(
+    file_content: str,
+    file_type: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Basic keyword-based extraction as fallback.
+    
+    Args:
+        file_content: The text content of the uploaded file
+        file_type: Type of file
+    
+    Returns:
+        dict: Basic extracted data
+    """
     content_lower = file_content.lower()
-    customer_keywords = ["name", "email", "phone", "address", "customer", "client", "contact"]
-    finance_keywords = ["amount", "payment", "invoice", "transaction", "balance", "account", "financial", "revenue"]
+    customer_keywords = ["name", "email", "phone", "address", "customer", "client", "contact", "birthday", "reward"]
+    finance_keywords = ["amount", "payment", "invoice", "transaction", "balance", "account", "financial", "revenue", "expense", "tax"]
     
     customer_score = sum(1 for keyword in customer_keywords if keyword in content_lower)
     finance_score = sum(1 for keyword in finance_keywords if keyword in content_lower)
     
-    suggestion = "customer_info" if customer_score > finance_score else "finances"
+    # Determine data type
+    if customer_score > finance_score:
+        data_type = "customer_info"
+        confidence = min(0.7, 0.3 + (customer_score * 0.1))
+    elif finance_score > customer_score:
+        data_type = "financial_data"
+        confidence = min(0.7, 0.3 + (finance_score * 0.1))
+    elif customer_score > 0 and finance_score > 0:
+        data_type = "mixed"
+        confidence = 0.5
+    else:
+        data_type = "unknown"
+        confidence = 0.2
+    
+    return {
+        "data_type": data_type,
+        "confidence": confidence,
+        "customer_info": None,
+        "financial_data": None,
+        "extraction_notes": f"Basic keyword extraction used. Customer keywords: {customer_score}, Finance keywords: {finance_score}",
+        "missing_fields": []
+    }
+
+
+def extract_data_from_file(
+    file_content: str,
+    file_type: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Extracts structured data from uploaded file content using Gemini.
+    
+    This tool uses Gemini's advanced understanding to extract structured data
+    in the exact format needed by Customer Info and Finances agents.
+    Falls back to basic keyword extraction if Gemini is unavailable.
+    
+    Args:
+        file_content: The text content of the uploaded file
+        file_type: Type of file (e.g., 'pdf', 'txt', 'csv', 'json', 'image')
+    
+    Returns:
+        dict: Extracted structured data with:
+            - data_type: "customer_info" | "financial_data" | "mixed" | "unknown"
+            - confidence: 0.0-1.0 score
+            - customer_info: structured customer data or null
+            - financial_data: structured financial data or null
+            - extraction_notes: notes about the extraction
+            - missing_fields: list of expected but missing fields
+    """
+    # Use Gemini for advanced extraction
+    extracted = _extract_with_gemini(file_content, file_type)
     
     # Store file info in file-based storage
     file_entry = {
         "content_preview": file_content[:500] if len(file_content) > 500 else file_content,
         "file_type": file_type or "unknown",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "extraction_confidence": extracted.get("confidence", 0),
+        "data_type": extracted.get("data_type", "unknown")
     }
     _storage["uploaded_files"].append(file_entry)
     _save_storage(_storage)
-    logger.info(f"Stored uploaded file: {file_type}")
+    logger.info(f"Stored uploaded file: {file_type} (confidence: {extracted.get('confidence', 0)})")
+    
+    # Format response for agents
+    data_type = extracted.get("data_type", "unknown")
+    confidence = extracted.get("confidence", 0)
+    
+    # Determine suggested agent
+    if data_type == "customer_info":
+        suggested_agent = "customer_info"
+    elif data_type == "financial_data":
+        suggested_agent = "finances"
+    elif data_type == "mixed":
+        suggested_agent = "both"
+    else:
+        suggested_agent = "unknown"
     
     return {
         "status": "success",
-        "message": f"File content analyzed. Suggested agent: {suggestion}",
-        "suggested_agent": suggestion,
-        "customer_keywords_found": customer_score,
-        "finance_keywords_found": finance_score,
+        "message": f"File content analyzed using {'Gemini' if extracted.get('confidence', 0) > 0.5 else 'basic extraction'}. Data type: {data_type}, Confidence: {confidence:.2f}",
+        "suggested_agent": suggested_agent,
+        "data_type": data_type,
+        "confidence": confidence,
+        "extracted_data": extracted,
+        "customer_info": extracted.get("customer_info"),
+        "financial_data": extracted.get("financial_data"),
+        "extraction_notes": extracted.get("extraction_notes", ""),
+        "missing_fields": extracted.get("missing_fields", []),
         "file_content_preview": file_content[:500] if len(file_content) > 500 else file_content
     }
 
