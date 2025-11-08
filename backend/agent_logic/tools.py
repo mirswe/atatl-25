@@ -5,39 +5,89 @@ from datetime import datetime
 import json
 import os
 import logging
+import uuid
+from google.cloud import storage
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# File-based storage for persistence across process restarts
-STORAGE_FILE = os.path.join(os.path.dirname(__file__), "..", "storage.json")
+# --- Google Cloud Storage (GCS) Configuration ---
+try:
+    storage_client = storage.Client()
+    BUCKET_NAME = "aiatl2025" 
+    bucket = storage_client.bucket(BUCKET_NAME)
+except Exception as e:
+    logger.error(f"Failed to initialize GCS client or bucket. Is 'google-cloud-storage' installed? {e}")
+    storage_client = None
+    bucket = None
 
-def _load_storage() -> Dict[str, list]:
-    """Load storage from file or return empty storage."""
-    if os.path.exists(STORAGE_FILE):
+def _upload_json_to_gcs(data_dict: Dict, folder: str, file_id: str) -> Optional[str]:
+    """Helper function to upload a dictionary as a JSON file to GCS.
+
+    Features:
+    - Retries uploads with exponential backoff for transient errors
+    - Falls back to local file storage under `./storage_fallback/` when GCS
+      is unavailable or all retries fail
+
+    Returns a GCS path (gs://...) on success or a local file path (file://...)
+    on fallback. Returns None only for unexpected failures.
+    """
+    # Prepare file path and JSON payload
+    file_name = f"{folder}/{file_id}.json"
+    payload = json.dumps(data_dict, indent=2)
+
+    # If bucket is not initialized, write to local fallback immediately
+    if not bucket:
+        logger.warning("GCS bucket not initialized. Writing to local fallback.")
         try:
-            with open(STORAGE_FILE, 'r') as f:
-                return json.load(f)
+            fallback_dir = os.path.join(os.getcwd(), "storage_fallback", folder)
+            os.makedirs(fallback_dir, exist_ok=True)
+            local_path = os.path.join(fallback_dir, f"{file_id}.json")
+            with open(local_path, "w", encoding="utf-8") as f:
+                f.write(payload)
+            local_uri = f"file://{local_path}"
+            logger.info(f"Wrote fallback file to {local_uri}")
+            return local_uri
         except Exception as e:
-            logger.warning(f"Error loading storage file: {e}")
-    return {
-        "customer_info": [],
-        "financial_data": [],
-        "uploaded_files": []
-    }
+            logger.error(f"Failed to write fallback file to disk: {e}")
+            return None
 
-def _save_storage(storage: Dict[str, list]):
-    """Save storage to file."""
+    # Try upload with retries
+    max_retries = 3
+    backoff_base = 0.5  # seconds
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            blob = bucket.blob(file_name)
+            blob.upload_from_string(payload, content_type="application/json")
+            gcs_path = f"gs://{BUCKET_NAME}/{file_name}"
+            logger.info(f"Successfully saved data to {gcs_path}")
+            return gcs_path
+        except Exception as e:
+            attempt += 1
+            logger.warning(f"Attempt {attempt} failed to upload to GCS: {e}")
+            # exponential backoff
+            try:
+                sleep_time = backoff_base * (2 ** (attempt - 1))
+                import time
+                time.sleep(sleep_time)
+            except Exception:
+                pass
+
+    # If we reach here, all retries failed — write to local fallback and log
+    logger.error(f"All {max_retries} attempts to upload to GCS failed. Writing to local fallback.")
     try:
-        os.makedirs(os.path.dirname(STORAGE_FILE), exist_ok=True)
-        with open(STORAGE_FILE, 'w') as f:
-            json.dump(storage, f, indent=2)
+        fallback_dir = os.path.join(os.getcwd(), "storage_fallback", folder)
+        os.makedirs(fallback_dir, exist_ok=True)
+        local_path = os.path.join(fallback_dir, f"{file_id}.json")
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(payload)
+        local_uri = f"file://{local_path}"
+        logger.info(f"Wrote fallback file to {local_uri}")
+        return local_uri
     except Exception as e:
-        logger.error(f"Error saving storage file: {e}")
-
-# Initialize storage
-_storage = _load_storage()
-
+        logger.error(f"Failed to write fallback file to disk after GCS retries: {e}")
+        return None
 
 def enter_customer_info(
     name: Optional[str] = None,
@@ -95,18 +145,25 @@ def enter_customer_info(
         **customer_data,
         "timestamp": datetime.now().isoformat()
     }
-    _storage["customer_info"].append(entry_with_timestamp)
-    _save_storage(_storage)
-    logger.info(f"Stored customer info: {entered_fields}")
+    
+    entry_id = str(uuid.uuid4())
+    gcs_path = _upload_json_to_gcs(entry_with_timestamp, "customer_info", entry_id)
+    
+    if not gcs_path:
+        return {
+            "status": "error",
+            "error_message": "Data was captured but failed to save to cloud storage. Check server logs.",
+            "data": customer_data
+        }
     
     return {
         "status": "success",
         "message": f"Successfully entered customer information. Entered: {entered_fields}. Missing fields set to null: {list(missing_fields.keys())}",
         "data": customer_data,
+        "gcs_path": gcs_path,
         "entered_fields": entered_fields,
         "missing_fields": list(missing_fields.keys())
     }
-
 
 def enter_financial_data(
     amount: Optional[float] = None,
@@ -170,18 +227,24 @@ def enter_financial_data(
         **financial_data,
         "timestamp": datetime.now().isoformat()
     }
-    _storage["financial_data"].append(entry_with_timestamp)
-    _save_storage(_storage)
-    logger.info(f"Stored financial data: {entered_fields}")
+    entry_id = str(uuid.uuid4())
+    gcs_path = _upload_json_to_gcs(entry_with_timestamp, "financial_data", entry_id)
+
+    if not gcs_path:
+        return {
+            "status": "error",
+            "error_message": "Data was captured but failed to save to cloud storage. Check server logs.",
+            "data": financial_data
+        }
     
     return {
         "status": "success",
         "message": f"Successfully entered financial data. Entered: {entered_fields}. Missing fields set to null: {list(missing_fields.keys())}",
         "data": financial_data,
+        "gcs_path": gcs_path,
         "entered_fields": entered_fields,
         "missing_fields": list(missing_fields.keys())
     }
-
 
 def extract_data_from_file(
     file_content: str,
@@ -215,10 +278,9 @@ def extract_data_from_file(
         "file_type": file_type or "unknown",
         "timestamp": datetime.now().isoformat()
     }
-    _storage["uploaded_files"].append(file_entry)
-    _save_storage(_storage)
-    logger.info(f"Stored uploaded file: {file_type}")
-    
+    entry_id = str(uuid.uuid4())
+    _upload_json_to_gcs(file_entry, "uploaded_files", entry_id) 
+
     return {
         "status": "success",
         "message": f"File content analyzed. Suggested agent: {suggestion}",
@@ -228,18 +290,59 @@ def extract_data_from_file(
         "file_content_preview": file_content[:500] if len(file_content) > 500 else file_content
     }
 
-
 def get_storage() -> Dict[str, list]:
-    """Get all stored data for viewing. Reloads from file to ensure latest data."""
-    global _storage
-    _storage = _load_storage()
-    return _storage.copy()
+    """Get all stored data for viewing. Reloads from GCS to ensure latest data."""
+    if not bucket:
+        logger.error("GCS bucket not initialized.")
+        return {"error": "GCS bucket not initialized."}
 
+    storage_data = {
+        "customer_info": [],
+        "financial_data": [],
+        "uploaded_files": []
+    }
+    
+    try:
+        # Get customers
+        blobs = storage_client.list_blobs(BUCKET_NAME, prefix="customer_info/")
+        for blob in blobs:
+            storage_data["customer_info"].append(json.loads(blob.download_as_string()))
+        
+        # Get finance
+        blobs = storage_client.list_blobs(BUCKET_NAME, prefix="financial_data/")
+        for blob in blobs:
+            storage_data["financial_data"].append(json.loads(blob.download_as_string()))
 
-def clear_storage():
-    """Clear all stored data."""
-    _storage["customer_info"].clear()
-    _storage["financial_data"].clear()
-    _storage["uploaded_files"].clear()
-    _save_storage(_storage)
+        # Get files
+        blobs = storage_client.list_blobs(BUCKET_NAME, prefix="uploaded_files/")
+        for blob in blobs:
+            storage_data["uploaded_files"].append(json.loads(blob.download_as_string()))
+            
+    except Exception as e:
+        logger.error(f"Error loading data from GCS: {e}")
+        return {"error": f"Error loading data from GCS: {e}"}
 
+    return storage_data
+
+def clear_storage() -> Dict[str, str]:
+    """Clear all stored data from GCS."""
+    if not bucket:
+        logger.error("GCS bucket not initialized.")
+        return {"status": "error", "message": "GCS not initialized."}
+
+    try:
+        folders = ["customer_info/", "financial_data/", "uploaded_files/"]
+        deleted_count = 0
+        for folder in folders:
+            blobs = storage_client.list_blobs(BUCKET_NAME, prefix=folder)
+            for blob in blobs:
+                blob.delete()
+                deleted_count += 1
+        
+        message = f"Cleared {deleted_count} file(s) from GCS."
+        logger.info(message)
+        return {"status": "success", "message": message}
+    except Exception as e:
+        message = f"Error clearing storage from GCS: {e}"
+        logger.error(message)
+        return {"status": "error", "message": message}
