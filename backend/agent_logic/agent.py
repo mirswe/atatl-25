@@ -24,12 +24,14 @@ customer_info_agent = Agent(
         "and enter it into the system using the available tools. "
         "\n\n"
         "When processing information:\n"
-        "- Carefully extract all available customer details (name, email, phone, address, company, notes)\n"
+        "- Carefully extract all available customer details (name, email, phone, address, company, category, notes)\n"
         "- Use the enter_customer_info tool to store the extracted data\n"
         "- If files are provided, use extract_data_from_file first to analyze the content\n"
         "- Be thorough and accurate when extracting information\n"
-        "- Confirm what data was entered after each operation\n"
-        "- If information is incomplete, ask clarifying questions or note what's missing\n"
+        "- For missing information: call the tool with None/null for fields that are not available\n"
+        "- The tool will store all fields explicitly, with None/null for missing data (e.g., category can be None)\n"
+        "- Confirm what data was entered and what fields are missing after each operation\n"
+        "- If information is incomplete, note what's missing but still enter what you have\n"
     ),
     tools=[enter_customer_info, extract_data_from_file],
 )

@@ -6,7 +6,9 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 from agent_logic.agent import root_agent
-from google.adk.core import Runner, InMemorySessionService
+from agent_logic.tools import get_storage, clear_storage
+from google.adk import Runner
+from google.adk.sessions import InMemorySessionService
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,18 +37,19 @@ if not GOOGLE_APPLICATION_CREDENTIALS and not os.path.exists(os.path.expanduser(
 
 AGENT_RESOURCE_NAME = f"projects/{PROJECT_ID}/locations/{REGION}/agents/1234567890"
 
+# Constants for session management
+APP_NAME = "multi_agent_system"
+DEFAULT_USER_ID = "default_user"
+
 # Initialize SessionService for state management
 session_service = InMemorySessionService()
 
 # Initialize Runner for agent execution with delegation support
 runner = Runner(
     agent=root_agent,
+    app_name=APP_NAME,
     session_service=session_service,
-)
-
-# Constants for session management
-APP_NAME = "multi_agent_system"
-DEFAULT_USER_ID = "default_user" 
+) 
 
 # Example request/response models
 class HealthResponse(BaseModel):
@@ -122,6 +125,13 @@ class AgentRequest(BaseModel):
 class AgentResponse(BaseModel):
     response: str
     session_id: Optional[str] = None
+
+class SessionStateResponse(BaseModel):
+    session_id: str
+    customer_info: Optional[list] = None
+    financial_data: Optional[list] = None
+    uploaded_files: Optional[list] = None
+    full_state: Optional[dict] = None
 
 @app.post("/api/agent/chat", response_model=AgentResponse)
 async def chat_with_agent(request: AgentRequest):
@@ -215,6 +225,73 @@ async def chat_with_agent(request: AgentRequest):
         import traceback
         error_detail = f"{str(e)}\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=f"Agent error: {error_detail}")
+
+@app.get("/api/agent/session/{session_id}", response_model=SessionStateResponse)
+async def get_session_state(session_id: str, user_id: Optional[str] = None):
+    """
+    Get the current session state for debugging and testing.
+    Shows all stored customer info, financial data, and uploaded files.
+    """
+    try:
+        user_id = user_id or DEFAULT_USER_ID
+        
+        session = await session_service.get_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+            session_id=session_id
+        )
+        
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        
+        # Extract state data
+        state = session.state if hasattr(session, 'state') else {}
+        
+        return {
+            "session_id": session_id,
+            "customer_info": state.get("customer_info", []),
+            "financial_data": state.get("financial_data", []),
+            "uploaded_files": state.get("uploaded_files", []),
+            "full_state": state
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving session state: {str(e)}")
+
+@app.get("/api/storage")
+async def view_storage():
+    """
+    View all data stored by the tools (customer info, financial data, uploaded files).
+    Quick endpoint to check if data is being entered correctly.
+    """
+    try:
+        storage = get_storage()
+        return {
+            "status": "success",
+            "customer_info_count": len(storage["customer_info"]),
+            "financial_data_count": len(storage["financial_data"]),
+            "uploaded_files_count": len(storage["uploaded_files"]),
+            "customer_info": storage["customer_info"],
+            "financial_data": storage["financial_data"],
+            "uploaded_files": storage["uploaded_files"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving storage: {str(e)}")
+
+@app.delete("/api/storage")
+async def clear_storage_endpoint():
+    """
+    Clear all stored data (customer info, financial data, uploaded files).
+    """
+    try:
+        clear_storage()
+        return {
+            "status": "success",
+            "message": "All stored data cleared"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error clearing storage: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

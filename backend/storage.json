@@ -1,0 +1,16 @@
+{
+  "customer_info": [
+    {
+      "name": "Test User",
+      "email": "test@example.com",
+      "phone": null,
+      "address": null,
+      "company": null,
+      "category": null,
+      "notes": null,
+      "timestamp": "2025-11-08T17:00:45.013894"
+    }
+  ],
+  "financial_data": [],
+  "uploaded_files": []
+}
