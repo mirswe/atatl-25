@@ -1,3 +1,4 @@
+from google.cloud import aiplatform_v1 #Vertex AI's API client library
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -17,6 +18,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Google Cloud Vertex AI configuration
+PROJECT_ID = "ferrous-plating-477602-p2"
+REGION = "us-central1"
+AGENT_RESOURCE_NAME = f"projects/{PROJECT_ID}/locations/{REGION}/agents/1234567890" 
 
 # Example request/response models
 class HealthResponse(BaseModel):
