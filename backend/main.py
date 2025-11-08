@@ -4,6 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import os
+from dotenv import load_dotenv
+from agent_logic.agent import root_agent
+from google.adk.core import Runner, InMemorySessionService
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(title="Hackathon API", version="1.0.0")
 
@@ -19,9 +25,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # Google Cloud Vertex AI configuration
-PROJECT_ID = "ferrous-plating-477602-p2"
-REGION = "us-central1"
-AGENT_RESOURCE_NAME = f"projects/{PROJECT_ID}/locations/{REGION}/agents/1234567890" 
+PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT_ID", "ferrous-plating-477602-p2")
+REGION = os.getenv("GOOGLE_CLOUD_REGION", "us-central1")
+GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+# Check if Google Cloud credentials are configured
+if not GOOGLE_APPLICATION_CREDENTIALS and not os.path.exists(os.path.expanduser("~/.config/gcloud/application_default_credentials.json")):
+    print("WARNING: Google Cloud credentials not found. Set GOOGLE_APPLICATION_CREDENTIALS in .env or run 'gcloud auth application-default login'")
+
+AGENT_RESOURCE_NAME = f"projects/{PROJECT_ID}/locations/{REGION}/agents/1234567890"
+
+# Initialize SessionService for state management
+session_service = InMemorySessionService()
+
+# Initialize Runner for agent execution with delegation support
+runner = Runner(
+    agent=root_agent,
+    session_service=session_service,
+)
+
+# Constants for session management
+APP_NAME = "multi_agent_system"
+DEFAULT_USER_ID = "default_user" 
 
 # Example request/response models
 class HealthResponse(BaseModel):
@@ -87,6 +112,109 @@ async def generate_ai_response(request: AIRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class AgentRequest(BaseModel):
+    message: str
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    file_content: Optional[str] = None  # For uploaded file content
+
+class AgentResponse(BaseModel):
+    response: str
+    session_id: Optional[str] = None
+
+@app.post("/api/agent/chat", response_model=AgentResponse)
+async def chat_with_agent(request: AgentRequest):
+    """
+    Chat with the multi-agent system using Google ADK.
+    The root agent will analyze the prompt and delegate to the appropriate specialized agent.
+    Supports file content uploads and maintains session state across conversations.
+    """
+    try:
+        # Get or create session
+        user_id = request.user_id or DEFAULT_USER_ID
+        session_id = request.session_id
+        
+        # Prepare the message - include file content if provided
+        message = request.message
+        if request.file_content:
+            message = f"{message}\n\nUploaded file content:\n{request.file_content}"
+        
+        # Get or create session
+        if session_id:
+            session = await session_service.get_session(
+                app_name=APP_NAME,
+                user_id=user_id,
+                session_id=session_id
+            )
+            if not session:
+                # Session doesn't exist, create new one
+                session = await session_service.create_session(
+                    app_name=APP_NAME,
+                    user_id=user_id
+                )
+                session_id = session.session_id
+        else:
+            # Create new session
+            session = await session_service.create_session(
+                app_name=APP_NAME,
+                user_id=user_id
+            )
+            session_id = session.session_id
+        
+        # Run the agent with the runner (supports delegation)
+        result_chunks = []
+        final_result = None
+        
+        async for chunk in runner.run_async(
+            message,
+            app_name=APP_NAME,
+            user_id=user_id,
+            session_id=session_id,
+        ):
+            # Handle different chunk types
+            if hasattr(chunk, 'content'):
+                result_chunks.append(str(chunk.content))
+            elif hasattr(chunk, 'text'):
+                result_chunks.append(str(chunk.text))
+            elif isinstance(chunk, str):
+                result_chunks.append(chunk)
+            elif isinstance(chunk, dict):
+                if "content" in chunk:
+                    result_chunks.append(str(chunk["content"]))
+                elif "text" in chunk:
+                    result_chunks.append(str(chunk["text"]))
+                else:
+                    result_chunks.append(str(chunk))
+            else:
+                try:
+                    result_chunks.append(str(chunk))
+                except:
+                    result_chunks.append(repr(chunk))
+            
+            final_result = chunk
+        
+        # Combine all chunks
+        if result_chunks:
+            result = "".join(result_chunks)
+        elif final_result:
+            if hasattr(final_result, 'content'):
+                result = str(final_result.content)
+            elif hasattr(final_result, 'text'):
+                result = str(final_result.text)
+            else:
+                result = str(final_result)
+        else:
+            result = "No response from agent"
+        
+        return {
+            "response": result,
+            "session_id": session_id
+        }
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=f"Agent error: {error_detail}")
 
 if __name__ == "__main__":
     import uvicorn

@@ -48,4 +48,9 @@ ENV/
 *.pem
 .cache/
 
+# Google Cloud service account keys
+*gcp-key.json
+*service-account*.json
+*credentials.json
+
 
