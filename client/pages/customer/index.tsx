@@ -1,68 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Overview from "./overview";
 import CustomerList from "./customerList";
-import CustomerCard from "./customerCard";
-
-// placeholder data
-const allCustomers = [
-  {
-    name: "Alice Johnson",
-    email: "alice@example.com",
-    category: "Prospective",
-    address: "123 Main St",
-    paymentInfo: "Visa ****1234",
-    birthday: "1990-02-14",
-    gender: "Female",
-    previousOrders: ["Order #1001", "Order #1005"],
-    previousCorrespondents: ["Bob Smith", "Carol Lee"],
-  },
-  {
-    name: "Bob Smith",
-    email: "bob@example.com",
-    category: "Current",
-    address: "456 Oak Ave",
-    paymentInfo: "Mastercard ****5678",
-    birthday: "1985-08-23",
-    gender: "Male",
-    previousOrders: ["Order #1002"],
-    previousCorrespondents: ["Alice Johnson"],
-  },
-  {
-    name: "Charlie Davis",
-    email: "charlie@example.com",
-    category: "Inactive",
-    address: "789 Pine Rd",
-    paymentInfo: "Paypal",
-    birthday: "1978-12-05",
-    gender: "Male",
-    previousOrders: [],
-    previousCorrespondents: [],
-  },
-  {
-    name: "Diana Lee",
-    email: "diana@example.com",
-    category: "Current",
-    address: "321 Cedar St",
-    paymentInfo: "Visa ****9876",
-    birthday: "1992-05-19",
-    gender: "Female",
-    previousOrders: ["Order #1010", "Order #1011"],
-    previousCorrespondents: ["Bob Smith"],
-  },
-  {
-    name: "Evan White",
-    email: "evan@example.com",
-    category: "Prospective",
-    address: "654 Maple Blvd",
-    paymentInfo: "Mastercard ****4321",
-    birthday: "1988-11-12",
-    gender: "Male",
-    previousOrders: [],
-    previousCorrespondents: [],
-  },
-];
+import { getCustomers, getCustomerStats } from "@/lib/api";
+import { Customer, CustomerCategory } from "@/types";
 
 const tabs = [
   { label: "Overview", key: "overview" },
@@ -73,37 +15,111 @@ const tabs = [
 
 export default function CustomerPage() {
   const [activeTab, setActiveTab] = useState<string>("overview");
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<{
+    total: number;
+    prospective: number;
+    current: number;
+    inactive: number;
+    uncategorized: number;
+  } | null>(null);
+
+  // Fetch customers and stats on mount
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const [customersResponse, statsResponse] = await Promise.all([
+          getCustomers(),
+          getCustomerStats(),
+        ]);
+
+        setAllCustomers(customersResponse.customers || []);
+        setStats(statsResponse.stats);
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error
+            ? err.message
+            : typeof err === "string"
+            ? err
+            : "Failed to load customers";
+        setError(errorMessage);
+        console.error("Error fetching customers:", err);
+        
+        // Log more details for debugging
+        if (err instanceof Error) {
+          console.error("Error stack:", err.stack);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // Precompute counts for overview chart
   const customerData = useMemo(() => {
-    const counts = {
-      Prospective: 0,
-      Current: 0,
-      Inactive: 0,
-    };
-    allCustomers.forEach((c) => {
-      counts[c.category] = (counts[c.category] || 0) + 1;
-    });
+    if (!stats) {
+      return [
+        { name: "Prospective", value: 0, color: "#8b5cf6" },
+        { name: "Current", value: 0, color: "#22c55e" },
+        { name: "Inactive", value: 0, color: "#f43f5e" },
+      ];
+    }
+
     return [
-      { name: "Prospective", value: counts.Prospective, color: "#8b5cf6" },
-      { name: "Current", value: counts.Current, color: "#22c55e" },
-      { name: "Inactive", value: counts.Inactive, color: "#f43f5e" },
+      { name: "Prospective", value: stats.prospective, color: "#8b5cf6" },
+      { name: "Current", value: stats.current, color: "#22c55e" },
+      { name: "Inactive", value: stats.inactive, color: "#f43f5e" },
     ];
-  }, []);
+  }, [stats]);
 
   // Filter customers for active tab
   const filteredCustomers = useMemo(() => {
     if (activeTab === "prospective")
-      return allCustomers.filter((c) => c.category === "Prospective");
+      return allCustomers.filter(
+        (c) => c.category?.toLowerCase() === "prospective"
+      );
     if (activeTab === "current")
-      return allCustomers.filter((c) => c.category === "Current");
+      return allCustomers.filter(
+        (c) => c.category?.toLowerCase() === "current"
+      );
     if (activeTab === "inactive")
-      return allCustomers.filter((c) => c.category === "Inactive");
+      return allCustomers.filter(
+        (c) => c.category?.toLowerCase() === "inactive"
+      );
     return [];
-  }, [activeTab]);
+  }, [activeTab, allCustomers]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-full bg-gray-50 text-gray-900 px-6 py-4">
+        <div className="flex items-center justify-center h-full">
+          <div className="text-lg text-gray-600">Loading customers...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col h-full bg-gray-50 text-gray-900 px-6 py-4">
+        <div className="flex items-center justify-center h-full">
+          <div className="text-lg text-red-600">
+            Error loading customers: {error}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full bg-gray-200 text-gray-900 px-6 py-4">
+    <div className="flex flex-col h-full bg-gray-50 text-gray-900 px-6 py-4">
       {/* Header and tabs */}
       <div className="flex items-center justify-between border-b border-gray-400 pb-3 mb-6">
         <h1 className="text-2xl font-semibold pr-10">Customers</h1>
@@ -127,15 +143,12 @@ export default function CustomerPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "overview" && <Overview data={customerData} />}
+      {activeTab === "overview" && (
+        <Overview data={customerData} stats={stats} />
+      )}
       {activeTab !== "overview" && (
         <CustomerList customers={filteredCustomers} />
       )}
     </div>
   );
 }
-/**Type '{ name: string; email: string; category: string; address: string; paymentInfo: string; birthday: string; gender: string; previousOrders: string[]; previousCorrespondents: string[]; }[]' is not assignable to type 'Customer[]'.
-  Type '{ name: string; email: string; category: string; address: string; paymentInfo: string; birthday: string; gender: string; previousOrders: string[]; previousCorrespondents: string[]; }' is not assignable to type 'Customer'.
-    Types of property 'category' are incompatible.
-      Type 'string' is not assignable to type '"Prospective" | "Current" | "Inactive"'.ts(2322)
-customerList.tsx(18, 3): The expected type comes from property 'customers' which is declared here on type 'IntrinsicAttributes & CustomerListProps' */

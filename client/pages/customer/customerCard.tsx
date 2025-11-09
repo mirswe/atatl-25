@@ -1,18 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-
-interface Customer {
-  name: string;
-  address: string;
-  email: string;
-  paymentInfo: string;
-  birthday: string;
-  gender: string;
-  previousOrders: string[];
-  previousCorrespondents: string[];
-  category: "Prospective" | "Current" | "Inactive";
-}
+import { Customer } from "@/types";
 
 interface CustomerCardProps {
   customer: Customer;
@@ -24,7 +13,9 @@ export default function CustomerCard({ customer }: CustomerCardProps) {
       ? "bg-violet-500"
       : customer.category === "Current"
       ? "bg-green-500"
-      : "bg-rose-500";
+      : customer.category === "Inactive"
+      ? "bg-rose-500"
+      : "bg-gray-500";
 
   return (
     <motion.div
@@ -37,35 +28,50 @@ export default function CustomerCard({ customer }: CustomerCardProps) {
       ></div>
 
       {/* Customer Info */}
-      <h3 className="text-white font-semibold text-lg">{customer.name}</h3>
-      <p className="text-gray-300 text-sm">{customer.address}</p>
-      <p className="text-gray-300 text-sm">{customer.email}</p>
-      <p className="text-gray-300 text-sm">Payment: {customer.paymentInfo}</p>
-      <p className="text-gray-300 text-sm">
-        Birthday: {customer.birthday} | Gender: {customer.gender}
-      </p>
+      <h3 className="text-white font-semibold text-lg">
+        {customer.name || "Unknown Customer"}
+      </h3>
+      {customer.address && (
+        <p className="text-gray-300 text-sm">{customer.address}</p>
+      )}
+      {customer.email && <p className="text-gray-300 text-sm">{customer.email}</p>}
+      {customer.paymentMethod && (
+        <p className="text-gray-300 text-sm">
+          Payment: {customer.paymentMethod}
+          {customer.paymentLast4 && ` ****${customer.paymentLast4}`}
+        </p>
+      )}
+      {customer.birthday && (
+        <p className="text-gray-300 text-sm">Birthday: {customer.birthday}</p>
+      )}
 
       {/* Previous Orders */}
-      <div className="mt-2">
-        <p className="text-gray-400 text-xs font-medium">Previous Orders:</p>
-        <ul className="list-disc list-inside text-gray-300 text-sm max-h-20 overflow-y-auto">
-          {customer.previousOrders.map((order, idx) => (
-            <li key={idx}>{order}</li>
-          ))}
-        </ul>
-      </div>
+      {customer.prevOrders && customer.prevOrders.length > 0 && (
+        <div className="mt-2">
+          <p className="text-gray-400 text-xs font-medium">Previous Orders:</p>
+          <ul className="list-disc list-inside text-gray-300 text-sm max-h-20 overflow-y-auto">
+            {customer.prevOrders.map((order, idx) => (
+              <li key={idx}>
+                {order.order_number || order.order_id || `Order #${idx + 1}`}
+                {order.date && ` - ${order.date}`}
+                {order.amount && ` - $${order.amount}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-      {/* Previous Correspondents */}
-      <div className="mt-2">
-        <p className="text-gray-400 text-xs font-medium">
-          Previous Correspondents:
-        </p>
-        <ul className="list-disc list-inside text-gray-300 text-sm max-h-20 overflow-y-auto">
-          {customer.previousCorrespondents.map((person, idx) => (
-            <li key={idx}>{person}</li>
-          ))}
-        </ul>
-      </div>
+      {/* Interests */}
+      {customer.interests && customer.interests.length > 0 && (
+        <div className="mt-2">
+          <p className="text-gray-400 text-xs font-medium">Interests:</p>
+          <ul className="list-disc list-inside text-gray-300 text-sm max-h-20 overflow-y-auto">
+            {customer.interests.map((interest, idx) => (
+              <li key={idx}>{interest}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </motion.div>
   );
 }

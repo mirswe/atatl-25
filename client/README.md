@@ -14,6 +14,9 @@ npm install
 # Copy and fill in your values
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# Backend API URL (defaults to http://localhost:8000 if not set)
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 3. run development server:
@@ -41,6 +44,8 @@ open [http://localhost:3000](http://localhost:3000) to see the app.
 - supabase client setup
 - responsive navigation component
 - example page with server-side data fetching
+- backend api integration (customer management, agent chat)
+- file upload support for agent processing
 
 ## development
 

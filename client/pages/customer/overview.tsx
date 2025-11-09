@@ -4,14 +4,24 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 interface OverviewProps {
   data: { name: string; value: number; color: string }[];
+  stats?: {
+    total: number;
+    prospective: number;
+    current: number;
+    inactive: number;
+    uncategorized: number;
+  } | null;
 }
 
-export default function Overview({ data }: OverviewProps) {
-  const totalCustomers = data.reduce((acc, curr) => acc + curr.value, 0);
-  const newThisMonth = 5;
+export default function Overview({ data, stats }: OverviewProps) {
+  const totalCustomers = stats?.total || data.reduce((acc, curr) => acc + curr.value, 0);
+  const newThisMonth = 5; // TODO: Calculate from timestamp data
   const activeRatio =
-    ((data.find((c) => c.name === "Current")?.value || 0) / totalCustomers) *
-    100;
+    totalCustomers > 0
+      ? ((stats?.current || data.find((c) => c.name === "Current")?.value || 0) /
+          totalCustomers) *
+        100
+      : 0;
 
   return (
     <div className="flex flex-col gap-6 md:flex-row">

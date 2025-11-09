@@ -4,29 +4,50 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import os
+import logging
+import uuid
 from dotenv import load_dotenv
 from agent_logic.agent import root_agent, customer_info_agent, finances_agent
-from agent_logic.tools import get_storage, clear_storage
+from agent_logic.tools import get_storage, clear_storage, update_all_customers_category
 from google.adk import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.runners import types as runner_types
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 # loding environment variables from .env file
 load_dotenv()
 
 app = FastAPI(title="Hackathon API", version="1.0.0")
 
-# some cors stuff i copied
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Accept-Language",
+        "Origin",
+        "X-Requested-With",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers",
+    ],
+    expose_headers=["*"],
+    max_age=600,
 )
+
 # gcloud configuration
+
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT_ID", "ferrous-plating-477602-p2")
 REGION = os.getenv("GOOGLE_CLOUD_REGION", "us-central1")
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -159,34 +180,58 @@ async def _run_agent_helper(
             session_id=session_id
         )
         if not session:
-            session = await session_service.create_session(
+            # Session doesn't exist, create new one with generated ID
+            session_id = str(uuid.uuid4())
+            await session_service.create_session(
                 app_name=APP_NAME,
-                user_id=user_id
+                user_id=user_id,
+                session_id=session_id
             )
-            session_id = session.session_id
     else:
-        session = await session_service.create_session(
+        # Create new session with generated ID
+        session_id = str(uuid.uuid4())
+        await session_service.create_session(
             app_name=APP_NAME,
-            user_id=user_id
+            user_id=user_id,
+            session_id=session_id
         )
-        session_id = session.session_id
     
-    # Run the agent
+    # Run the agent - Runner.run_async takes new_message, user_id, and session_id
+    # Convert string message to Content object
+    content_message = runner_types.Content(
+        parts=[runner_types.Part(text=message)]
+    ) if message else None
+    
     result_chunks = []
     final_result = None
     
     async for chunk in runner.run_async(
-        message,
-        app_name=APP_NAME,
         user_id=user_id,
         session_id=session_id,
+        new_message=content_message,
     ):
-        if hasattr(chunk, 'content'):
-            result_chunks.append(str(chunk.content))
+        # Handle Content objects (from ADK)
+        if isinstance(chunk, runner_types.Content):
+            if chunk.parts:
+                for part in chunk.parts:
+                    if hasattr(part, 'text') and part.text:
+                        result_chunks.append(part.text)
+        # Handle chunks with content attribute
+        elif hasattr(chunk, 'content'):
+            if isinstance(chunk.content, runner_types.Content):
+                if chunk.content.parts:
+                    for part in chunk.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            result_chunks.append(part.text)
+            else:
+                result_chunks.append(str(chunk.content))
+        # Handle chunks with text attribute
         elif hasattr(chunk, 'text'):
             result_chunks.append(str(chunk.text))
+        # Handle string chunks
         elif isinstance(chunk, str):
             result_chunks.append(chunk)
+        # Handle dict chunks
         elif isinstance(chunk, dict):
             if "content" in chunk:
                 result_chunks.append(str(chunk["content"]))
@@ -194,6 +239,7 @@ async def _run_agent_helper(
                 result_chunks.append(str(chunk["text"]))
             else:
                 result_chunks.append(str(chunk))
+        # Fallback: try to convert to string
         else:
             try:
                 result_chunks.append(str(chunk))
@@ -206,8 +252,28 @@ async def _run_agent_helper(
     if result_chunks:
         result = "".join(result_chunks)
     elif final_result:
-        if hasattr(final_result, 'content'):
-            result = str(final_result.content)
+        # Handle Content objects
+        if isinstance(final_result, runner_types.Content):
+            if final_result.parts:
+                text_parts = []
+                for part in final_result.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text_parts.append(part.text)
+                result = "".join(text_parts) if text_parts else "No response from agent"
+            else:
+                result = "No response from agent"
+        elif hasattr(final_result, 'content'):
+            if isinstance(final_result.content, runner_types.Content):
+                if final_result.content.parts:
+                    text_parts = []
+                    for part in final_result.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text_parts.append(part.text)
+                    result = "".join(text_parts) if text_parts else "No response from agent"
+                else:
+                    result = "No response from agent"
+            else:
+                result = str(final_result.content)
         elif hasattr(final_result, 'text'):
             result = str(final_result.text)
         else:
@@ -242,37 +308,58 @@ async def chat_with_agent(request: AgentRequest):
                 session_id=session_id
             )
             if not session:
-                # Session doesn't exist, create new one
-                session = await session_service.create_session(
+                # Session doesn't exist, create new one with generated ID
+                session_id = str(uuid.uuid4())
+                await session_service.create_session(
                     app_name=APP_NAME,
-                    user_id=user_id
+                    user_id=user_id,
+                    session_id=session_id
                 )
-                session_id = session.session_id
         else:
-            # Create new session
-            session = await session_service.create_session(
+            # Create new session with generated ID
+            session_id = str(uuid.uuid4())
+            await session_service.create_session(
                 app_name=APP_NAME,
-                user_id=user_id
+                user_id=user_id,
+                session_id=session_id
             )
-            session_id = session.session_id
         
         # Run the agent with the runner (supports delegation)
+        # Convert string message to Content object
+        content_message = runner_types.Content(
+            parts=[runner_types.Part(text=message)]
+        ) if message else None
+        
         result_chunks = []
         final_result = None
         
         async for chunk in runner.run_async(
-            message,
-            app_name=APP_NAME,
             user_id=user_id,
             session_id=session_id,
+            new_message=content_message,
         ):
-            # Handle different chunk types
-            if hasattr(chunk, 'content'):
-                result_chunks.append(str(chunk.content))
+            # Handle Content objects (from ADK)
+            if isinstance(chunk, runner_types.Content):
+                if chunk.parts:
+                    for part in chunk.parts:
+                        if hasattr(part, 'text') and part.text:
+                            result_chunks.append(part.text)
+            # Handle chunks with content attribute
+            elif hasattr(chunk, 'content'):
+                if isinstance(chunk.content, runner_types.Content):
+                    if chunk.content.parts:
+                        for part in chunk.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                result_chunks.append(part.text)
+                else:
+                    result_chunks.append(str(chunk.content))
+            # Handle chunks with text attribute
             elif hasattr(chunk, 'text'):
                 result_chunks.append(str(chunk.text))
+            # Handle string chunks
             elif isinstance(chunk, str):
                 result_chunks.append(chunk)
+            # Handle dict chunks
             elif isinstance(chunk, dict):
                 if "content" in chunk:
                     result_chunks.append(str(chunk["content"]))
@@ -280,6 +367,7 @@ async def chat_with_agent(request: AgentRequest):
                     result_chunks.append(str(chunk["text"]))
                 else:
                     result_chunks.append(str(chunk))
+            # Fallback: try to convert to string
             else:
                 try:
                     result_chunks.append(str(chunk))
@@ -292,8 +380,28 @@ async def chat_with_agent(request: AgentRequest):
         if result_chunks:
             result = "".join(result_chunks)
         elif final_result:
-            if hasattr(final_result, 'content'):
-                result = str(final_result.content)
+            # Handle Content objects
+            if isinstance(final_result, runner_types.Content):
+                if final_result.parts:
+                    text_parts = []
+                    for part in final_result.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text_parts.append(part.text)
+                    result = "".join(text_parts) if text_parts else "No response from agent"
+                else:
+                    result = "No response from agent"
+            elif hasattr(final_result, 'content'):
+                if isinstance(final_result.content, runner_types.Content):
+                    if final_result.content.parts:
+                        text_parts = []
+                        for part in final_result.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                text_parts.append(part.text)
+                        result = "".join(text_parts) if text_parts else "No response from agent"
+                    else:
+                        result = "No response from agent"
+                else:
+                    result = str(final_result.content)
             elif hasattr(final_result, 'text'):
                 result = str(final_result.text)
             else:
@@ -404,6 +512,153 @@ async def get_session_state(session_id: str, user_id: Optional[str] = None):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving session state: {str(e)}")
+
+@app.get("/api/customers/stats")
+async def get_customer_stats():
+    """
+    Get customer statistics (counts by category, totals).
+    """
+    try:
+        storage = get_storage()
+        
+        # Check if get_storage returned an error - return empty stats instead of failing
+        if "error" in storage:
+            logger.warning(f"Storage error (returning empty stats): {storage.get('error', 'Unknown error')}")
+            return {
+                "status": "success",
+                "stats": {
+                    "total": 0,
+                    "prospective": 0,
+                    "current": 0,
+                    "inactive": 0,
+                    "uncategorized": 0
+                }
+            }
+        
+        customers = storage.get("customer_info", [])
+        
+        stats = {
+            "total": len(customers),
+            "prospective": 0,
+            "current": 0,
+            "inactive": 0,
+            "uncategorized": 0
+        }
+        
+        for customer in customers:
+            category = customer.get("category")
+            if not category:
+                stats["uncategorized"] += 1
+            elif category.lower() == "prospective":
+                stats["prospective"] += 1
+            elif category.lower() == "current":
+                stats["current"] += 1
+            elif category.lower() == "inactive":
+                stats["inactive"] += 1
+            else:
+                stats["uncategorized"] += 1
+        
+        return {
+            "status": "success",
+            "stats": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving customer stats: {str(e)}")
+
+@app.get("/api/customers")
+async def get_customers(category: Optional[str] = None):
+    """
+    Get all customers, optionally filtered by category.
+    Query param: ?category=Prospective|Current|Inactive
+    """
+    try:
+        storage = get_storage()
+        
+        # Check if get_storage returned an error - return empty list instead of failing
+        if "error" in storage:
+            logger.warning(f"Storage error (returning empty list): {storage.get('error', 'Unknown error')}")
+            return {
+                "status": "success",
+                "count": 0,
+                "customers": []
+            }
+        
+        customers = storage.get("customer_info", [])
+        
+        if category:
+            # Filter by category (case-insensitive)
+            customers = [
+                c for c in customers
+                if c.get("category") and c.get("category").lower() == category.lower()
+            ]
+        
+        return {
+            "status": "success",
+            "count": len(customers),
+            "customers": customers
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving customers: {str(e)}")
+
+@app.get("/api/customers/{customer_id}")
+async def get_customer(customer_id: str):
+    """
+    Get a specific customer by email (used as ID).
+    """
+    try:
+        storage = get_storage()
+        
+        # Check if get_storage returned an error
+        if "error" in storage:
+            logger.warning(f"Storage error: {storage.get('error', 'Unknown error')}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Customer not found (storage unavailable: {storage.get('error', 'Unknown error')})"
+            )
+        
+        customers = storage.get("customer_info", [])
+        
+        # Find customer by email (case-insensitive)
+        customer = None
+        for c in customers:
+            if c.get("email") and c.get("email").lower() == customer_id.lower():
+                customer = c
+                break
+        
+        if not customer:
+            raise HTTPException(status_code=404, detail=f"Customer with email {customer_id} not found")
+        
+        return {
+            "status": "success",
+            "customer": customer
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving customer: {str(e)}")
+
+class UpdateCategoryRequest(BaseModel):
+    category: str
+
+@app.post("/api/customers/update-category")
+async def update_customers_category(request: UpdateCategoryRequest):
+    """
+    Update all customers to have the specified category.
+    Category must be: Prospective, Current, or Inactive
+    """
+    try:
+        result = update_all_customers_category(request.category)
+        
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message", "Failed to update categories"))
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating customer categories: {str(e)}")
 
 @app.get("/api/storage")
 async def view_storage():

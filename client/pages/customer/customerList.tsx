@@ -1,18 +1,7 @@
 "use client";
 
 import CustomerCard from "./customerCard";
-
-interface Customer {
-  name: string;
-  address: string;
-  email: string;
-  paymentInfo: string;
-  birthday: string;
-  gender: string;
-  previousOrders: string[];
-  previousCorrespondents: string[];
-  category: "Prospective" | "Current" | "Inactive";
-}
+import { Customer } from "@/types";
 
 interface CustomerListProps {
   customers: Customer[];

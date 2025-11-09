@@ -1,22 +1,3 @@
-# Hackathon Project Setup
-
-rapid development setup for hackathon projects with next.js frontend and fastapi backend.
-
-## project structure
-
-```
-.
-├── atatl-25/          # Next.js frontend
-│   ├── components/    # React components
-│   ├── lib/          # Utilities and helpers
-│   ├── pages/        # Next.js pages
-│   ├── types/        # TypeScript types
-│   └── styles/       # Global styles
-└── backend/          # FastAPI backend
-    ├── main.py       # FastAPI app
-    └── requirements.txt
-```
-
 ## quick start
 
 ### frontend setup
