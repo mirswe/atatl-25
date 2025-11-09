@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   LayoutDashboard,
@@ -12,14 +12,19 @@ import {
 import { cn } from "@/lib/utils";
 
 const tabs = [
-  { name: "Dashboard", icon: LayoutDashboard },
-  { name: "Agent", icon: Briefcase },
-  { name: "Customer", icon: Users },
-  { name: "Finances", icon: DollarSign },
+  { name: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  { name: "Agent", icon: Briefcase, path: "/agent" },
+  { name: "Customer", icon: Users, path: "/customer" },
+  { name: "Finances", icon: DollarSign, path: "/finances" },
 ];
 
 export default function Sidebar() {
-  const [active, setActive] = useState("Dashboard");
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Determine active tab based on current path
+  const active =
+    tabs.find((tab) => pathname?.startsWith(tab.path))?.name || "Dashboard";
 
   return (
     <aside className="sticky h-full w-64 bg-gray-900 text-gray-300 flex flex-col">
@@ -53,7 +58,7 @@ export default function Sidebar() {
           return (
             <button
               key={tab.name}
-              onClick={() => setActive(tab.name)}
+              onClick={() => router.push(tab.path)}
               className={cn(
                 "relative flex items-center gap-3 px-5 py-3 text-sm font-medium transition-colors",
                 isActive

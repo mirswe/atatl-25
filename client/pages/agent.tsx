@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { Plus, Maximize2 } from "lucide-react";
 
 export default function Agent() {
-  const username = "John Doe"; // ← replace with real username later
+  const username = "John Doe"; // replace with real username
   const [message, setMessage] = useState("");
 
   const bubbles = [
@@ -28,10 +28,11 @@ export default function Agent() {
 
   return (
     <div className="flex flex-col h-full bg-gray-200 text-gray-100 px-6 py-4">
+      {/* HEADER */}
       <h1 className="text-2xl mb-6 text-gray-900">Hello {username}...</h1>
 
-      {/* CENTER AREA */}
-      <div className="flex-1 flex flex-col items-center justify-center relative space-y-6">
+      {/* SCROLLABLE CENTER AREA */}
+      <div className="flex-1 overflow-y-auto flex flex-col items-center space-y-6 mb-3">
         {/* PROMPT */}
         <h2 className="text-lg text-gray-900 mb-4">
           What can I help you with today?
@@ -44,12 +45,10 @@ export default function Agent() {
               key={b.label}
               className="relative w-52 h-40 rounded-2xl bg-gray-900/75 border shadow-md flex flex-col justify-between p-3"
             >
-              {/* CATEGORY LABEL */}
               <span className="text-gray-100 font-medium text-sm">
                 {b.label}
               </span>
 
-              {/* EXPAND BUTTON */}
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 className={`flex items-center justify-center cursor-pointer w-10 h-10 rounded-lg ${b.color}`}
@@ -57,7 +56,6 @@ export default function Agent() {
               >
                 <Maximize2 className="w-5 h-5 text-gray-900" />
               </motion.button>
-
               {/* ACCENT BAR */}
               <div
                 className={`absolute right-2 h-[80%] w-1.5 rounded-xl ${b.color}`}
@@ -66,7 +64,7 @@ export default function Agent() {
           ))}
         </div>
 
-        {/* ADDITIONAL TEXT BELOW CARDS */}
+        {/* ADDITIONAL TEXT */}
         <div className="max-w-xl text-left text-gray-800 mb-3">
           <p className="mb-2">
             Feel free to{" "}
