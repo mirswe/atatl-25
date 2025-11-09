@@ -10,12 +10,12 @@ from agent_logic.tools import get_storage, clear_storage
 from google.adk import Runner
 from google.adk.sessions import InMemorySessionService
 
-# Load environment variables from .env file
+# loding environment variables from .env file
 load_dotenv()
 
 app = FastAPI(title="Hackathon API", version="1.0.0")
 
-# CORS middleware for Next.js frontend
+# some cors stuff i copied
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -26,32 +26,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Google Cloud Vertex AI configuration
+# gcloud configuration
 PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT_ID", "ferrous-plating-477602-p2")
 REGION = os.getenv("GOOGLE_CLOUD_REGION", "us-central1")
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-# Check if Google Cloud credentials are configured
+# a check for gcloud
 if not GOOGLE_APPLICATION_CREDENTIALS and not os.path.exists(os.path.expanduser("~/.config/gcloud/application_default_credentials.json")):
     print("WARNING: Google Cloud credentials not found. Set GOOGLE_APPLICATION_CREDENTIALS in .env or run 'gcloud auth application-default login'")
 
 AGENT_RESOURCE_NAME = f"projects/{PROJECT_ID}/locations/{REGION}/agents/1234567890"
 
-# Constants for session management
+# constants for session management
 APP_NAME = "multi_agent_system"
 DEFAULT_USER_ID = "default_user"
 
-# Initialize SessionService for state management
+# initializing SessionService for state management
 session_service = InMemorySessionService()
 
-# Initialize Runner for agent execution with delegation support
+# initializing Runner for agent execution with delegation support
 runner = Runner(
     agent=root_agent,
     app_name=APP_NAME,
     session_service=session_service,
 )
 
-# Initialize separate runners for direct agent access
+# initializing separate runners for direct agent access
 customer_runner = Runner(
     agent=customer_info_agent,
     app_name=APP_NAME,
@@ -98,8 +98,6 @@ async def generate_ai_response(request: AIRequest):
     - Hugging Face: from transformers import pipeline
     """
     try:
-        # Example: Replace this with your actual AI service call
-        # For now, returning a mock response
         ai_api_key = os.getenv("AI_API_KEY", "")
         
         if not ai_api_key:
