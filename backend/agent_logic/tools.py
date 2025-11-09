@@ -255,11 +255,11 @@ def enter_financial_data(
             )
         }
     
-    # Create a summary of what was entered vs what's missing
+    # create a summary of what was entered vs what's missing
     entered_fields = {k: v for k, v in financial_data.items() if v is not None and v != ""}
     missing_fields = {k: None for k, v in financial_data.items() if v is None or v == ""}
     
-    # Store in GCS for persistence
+    # store in GCS for persistence
     entry_with_timestamp = {
         **financial_data,
         "timestamp": datetime.now().isoformat()
@@ -302,10 +302,10 @@ def _extract_with_gemini(
         dict: Structured extracted data with confidence scores
     """
     try:
-        # Initialize Gemini model for extraction
+        # gemini model for extraction
         model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
         
-        # Create extraction prompt with structured output format
+        # extraction prompt with structured output format
         extraction_prompt = f"""Analyze the following file content and extract all relevant structured data.
 
 File Type: {file_type or 'unknown'}
