@@ -167,6 +167,7 @@ def enter_customer_info(
     }
 
 def enter_financial_data(
+    name: Optional[str] = None,  # customer name to link financial data to customer
     category: Optional[str] = None,
     # Transaction Records fields
     transactions: Optional[list[dict]] = None,  # cashflow in/out records
@@ -230,6 +231,7 @@ def enter_financial_data(
     """
     # Store all fields explicitly, including None for missing data
     financial_data = {
+        "name": name,
         "category": category,
         "transactions": transactions,
         "expenses": expenses,
@@ -332,6 +334,7 @@ Extract and return a JSON object with the following structure. Be thorough and a
     "notes": string or null
   }},
   "financial_data": {{
+    "name": string or null,  # customer name to link financial data to customer
     "category": "Transaction Records" | "Expenses" | "Banking" | "Finance Reports" | "Tax Documents" | null,
     "transactions": [
       {{
@@ -394,10 +397,11 @@ CRITICAL INSTRUCTIONS:
 3. For dates, normalize to YYYY-MM-DD format
 4. For amounts, extract numeric values only (remove currency symbols)
 5. For financial data, determine the correct category and type
-6. Group related items into appropriate lists
-7. Set confidence based on how clear and complete the data is
-8. If data is ambiguous or unclear, note it in extraction_notes
-9. Return ONLY valid JSON, no markdown formatting
+6. Extract customer name from financial data when available (e.g., from invoices, receipts, purchase records)
+7. Group related items into appropriate lists
+8. Set confidence based on how clear and complete the data is
+9. If data is ambiguous or unclear, note it in extraction_notes
+10. Return ONLY valid JSON, no markdown formatting
 
 Return the JSON object now:"""
 
