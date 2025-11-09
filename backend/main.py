@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 import os
 from dotenv import load_dotenv
-from agent_logic.agent import root_agent
+from agent_logic.agent import root_agent, customer_info_agent, finances_agent
 from agent_logic.tools import get_storage, clear_storage
 from google.adk import Runner
 from google.adk.sessions import InMemorySessionService
@@ -47,6 +47,19 @@ session_service = InMemorySessionService()
 # Initialize Runner for agent execution with delegation support
 runner = Runner(
     agent=root_agent,
+    app_name=APP_NAME,
+    session_service=session_service,
+)
+
+# Initialize separate runners for direct agent access
+customer_runner = Runner(
+    agent=customer_info_agent,
+    app_name=APP_NAME,
+    session_service=session_service,
+)
+
+finance_runner = Runner(
+    agent=finances_agent,
     app_name=APP_NAME,
     session_service=session_service,
 ) 
@@ -132,6 +145,79 @@ class SessionStateResponse(BaseModel):
     financial_data: Optional[list] = None
     uploaded_files: Optional[list] = None
     full_state: Optional[dict] = None
+
+async def _run_agent_helper(
+    runner: Runner,
+    message: str,
+    user_id: str,
+    session_id: Optional[str] = None
+) -> tuple[str, str]:
+    """Helper function to run an agent and return response and session_id."""
+    # Get or create session
+    if session_id:
+        session = await session_service.get_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+            session_id=session_id
+        )
+        if not session:
+            session = await session_service.create_session(
+                app_name=APP_NAME,
+                user_id=user_id
+            )
+            session_id = session.session_id
+    else:
+        session = await session_service.create_session(
+            app_name=APP_NAME,
+            user_id=user_id
+        )
+        session_id = session.session_id
+    
+    # Run the agent
+    result_chunks = []
+    final_result = None
+    
+    async for chunk in runner.run_async(
+        message,
+        app_name=APP_NAME,
+        user_id=user_id,
+        session_id=session_id,
+    ):
+        if hasattr(chunk, 'content'):
+            result_chunks.append(str(chunk.content))
+        elif hasattr(chunk, 'text'):
+            result_chunks.append(str(chunk.text))
+        elif isinstance(chunk, str):
+            result_chunks.append(chunk)
+        elif isinstance(chunk, dict):
+            if "content" in chunk:
+                result_chunks.append(str(chunk["content"]))
+            elif "text" in chunk:
+                result_chunks.append(str(chunk["text"]))
+            else:
+                result_chunks.append(str(chunk))
+        else:
+            try:
+                result_chunks.append(str(chunk))
+            except:
+                result_chunks.append(repr(chunk))
+        
+        final_result = chunk
+    
+    # Combine all chunks
+    if result_chunks:
+        result = "".join(result_chunks)
+    elif final_result:
+        if hasattr(final_result, 'content'):
+            result = str(final_result.content)
+        elif hasattr(final_result, 'text'):
+            result = str(final_result.text)
+        else:
+            result = str(final_result)
+    else:
+        result = "No response from agent"
+    
+    return result, session_id
 
 @app.post("/api/agent/chat", response_model=AgentResponse)
 async def chat_with_agent(request: AgentRequest):
@@ -225,6 +311,68 @@ async def chat_with_agent(request: AgentRequest):
         import traceback
         error_detail = f"{str(e)}\n{traceback.format_exc()}"
         raise HTTPException(status_code=500, detail=f"Agent error: {error_detail}")
+
+@app.post("/api/agent/customer", response_model=AgentResponse)
+async def chat_with_customer_agent(request: AgentRequest):
+    """
+    Chat directly with the customer_info_agent.
+    Bypasses the root agent and goes straight to customer information processing.
+    Supports file content uploads and maintains session state.
+    """
+    try:
+        user_id = request.user_id or DEFAULT_USER_ID
+        
+        # Prepare the message - include file content if provided
+        message = request.message
+        if request.file_content:
+            message = f"{message}\n\nUploaded file content:\n{request.file_content}"
+        
+        result, session_id = await _run_agent_helper(
+            customer_runner,
+            message,
+            user_id,
+            request.session_id
+        )
+        
+        return {
+            "response": result,
+            "session_id": session_id
+        }
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=f"Customer agent error: {error_detail}")
+
+@app.post("/api/agent/finance", response_model=AgentResponse)
+async def chat_with_finance_agent(request: AgentRequest):
+    """
+    Chat directly with the finances_agent.
+    Bypasses the root agent and goes straight to financial data processing.
+    Supports file content uploads and maintains session state.
+    """
+    try:
+        user_id = request.user_id or DEFAULT_USER_ID
+        
+        # Prepare the message - include file content if provided
+        message = request.message
+        if request.file_content:
+            message = f"{message}\n\nUploaded file content:\n{request.file_content}"
+        
+        result, session_id = await _run_agent_helper(
+            finance_runner,
+            message,
+            user_id,
+            request.session_id
+        )
+        
+        return {
+            "response": result,
+            "session_id": session_id
+        }
+    except Exception as e:
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=f"Finance agent error: {error_detail}")
 
 @app.get("/api/agent/session/{session_id}", response_model=SessionStateResponse)
 async def get_session_state(session_id: str, user_id: Optional[str] = None):

@@ -9,6 +9,22 @@
       "category": null,
       "notes": null,
       "timestamp": "2025-11-08T17:00:45.013894"
+    },
+    {
+      "name": "Barbara R. Baker",
+      "email": "BarbaraRBaker@dayrep.com",
+      "phone": "606-376-3864",
+      "rewardPoints": 73040,
+      "prevOrders": null,
+      "birthday": "March 4, 1968",
+      "interests": [
+        "Golf"
+      ],
+      "address": "4448 May Street, Stearns, KY 42647",
+      "company": null,
+      "category": null,
+      "notes": null,
+      "timestamp": "2025-11-08T18:19:23.347059"
     }
   ],
   "financial_data": [],
