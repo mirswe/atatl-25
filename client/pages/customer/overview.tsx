@@ -52,7 +52,8 @@ export default function Overview({ data }: OverviewProps) {
                 cx="50%"
                 cy="50%"
                 outerRadius={80}
-                label
+                labelLine={false} // remove lines
+                label={false} // remove labels
               >
                 {data.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={entry.color} />
